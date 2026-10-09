@@ -1,0 +1,36 @@
+{
+  "_mock": true,
+  "_notice": "合成样例数据。活动日历按官方描述返回进行中/往期/未来三类。",
+  "data": {
+    "campaignList": [
+      {
+        "campaignId": "MOCK-P-3001",
+        "campaignName": "【样例】超值早餐季",
+        "startDate": "${TODAY-20}",
+        "endDate": "${TODAY+2}",
+        "status": "进行中"
+      },
+      {
+        "campaignId": "MOCK-P-3002",
+        "campaignName": "【样例】周末第二份半价",
+        "startDate": "${TODAY-3}",
+        "endDate": "${TODAY+18}",
+        "status": "进行中"
+      },
+      {
+        "campaignId": "MOCK-P-3003",
+        "campaignName": "【样例】新品试吃周",
+        "startDate": "${TODAY+6}",
+        "endDate": "${TODAY+13}",
+        "status": "未开始"
+      },
+      {
+        "campaignId": "MOCK-P-3004",
+        "campaignName": "【样例】已结束活动",
+        "startDate": "${TODAY-45}",
+        "endDate": "${TODAY-15}",
+        "status": "已结束"
+      }
+    ]
+  }
+}

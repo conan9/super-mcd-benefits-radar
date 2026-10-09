@@ -1,0 +1,74 @@
+{
+  "_mock": true,
+  "_notice": "合成样例数据，非真实用户数据，不代表麦当劳官方字段定义。请用 scripts/sniff_schema.py 对真实返回做一次字段核对。",
+  "data": {
+    "couponList": [
+      {
+        "couponId": "MOCK-C-1001",
+        "couponName": "【样例】麦辣鸡腿堡买一送一",
+        "couponType": "买赠",
+        "discountValue": null,
+        "thresholdAmount": null,
+        "startDate": "${TODAY-8}",
+        "endDate": "${TODAY}",
+        "useChannel": "到店取餐",
+        "couponStatus": "可用"
+      },
+      {
+        "couponId": "MOCK-C-1002",
+        "couponName": "【样例】满30减8",
+        "couponType": "满减",
+        "discountValue": 8,
+        "thresholdAmount": 30,
+        "startDate": "${TODAY-20}",
+        "endDate": "${TODAY+2}",
+        "useChannel": "全渠道",
+        "couponStatus": "可用"
+      },
+      {
+        "couponId": "MOCK-C-1003",
+        "couponName": "【样例】早餐套餐立减5元",
+        "couponType": "立减",
+        "discountValue": 5,
+        "thresholdAmount": null,
+        "startDate": "${TODAY-5}",
+        "endDate": "${TODAY+5}",
+        "useChannel": "到店取餐",
+        "couponStatus": "可用"
+      },
+      {
+        "couponId": "MOCK-C-1004",
+        "couponName": "【样例】大薯条第二份半价",
+        "couponType": "折扣",
+        "discountValue": null,
+        "thresholdAmount": null,
+        "startDate": "${TODAY-1}",
+        "endDate": "${TODAY+45}",
+        "useChannel": "全渠道",
+        "couponStatus": "可用"
+      },
+      {
+        "couponId": "MOCK-C-1005",
+        "couponName": "【样例】新品尝鲜券（过期日缺失样例）",
+        "couponType": "立减",
+        "discountValue": 3,
+        "thresholdAmount": null,
+        "startDate": "${TODAY-3}",
+        "endDate": null,
+        "useChannel": "到店取餐",
+        "couponStatus": "可用"
+      },
+      {
+        "couponId": "MOCK-C-1006",
+        "couponName": "【样例】已过期券",
+        "couponType": "满减",
+        "discountValue": 10,
+        "thresholdAmount": 50,
+        "startDate": "${TODAY-40}",
+        "endDate": "${TODAY-10}",
+        "useChannel": "全渠道",
+        "couponStatus": "已过期"
+      }
+    ]
+  }
+}

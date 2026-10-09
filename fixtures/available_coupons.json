@@ -1,0 +1,28 @@
+{
+  "_mock": true,
+  "_notice": "合成样例数据。本技能只展示可领取项，绝不代为领取（不调用 auto-bind-coupons）。",
+  "data": {
+    "couponList": [
+      {
+        "couponId": "MOCK-A-2001",
+        "couponName": "【样例·可领取】麦麦省满20减5",
+        "couponType": "满减",
+        "discountValue": 5,
+        "thresholdAmount": 20,
+        "startDate": "${TODAY}",
+        "endDate": "${TODAY+7}",
+        "useChannel": "全渠道"
+      },
+      {
+        "couponId": "MOCK-A-2002",
+        "couponName": "【样例·可领取】任意套餐立减6元",
+        "couponType": "立减",
+        "discountValue": 6,
+        "thresholdAmount": null,
+        "startDate": "${TODAY}",
+        "endDate": "${TODAY+21}",
+        "useChannel": "全渠道"
+      }
+    ]
+  }
+}

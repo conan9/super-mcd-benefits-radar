@@ -1,0 +1,72 @@
+# 只读边界与隐私设计
+
+本文件说明"不下单、不消费积分、不自动领券"和"严禁泄露 Token"两条原则的**技术落点**。
+它们是可被测试验证的机制，不是文档里的口号。
+
+## 1. 只读：白名单 + 默认拒绝
+
+```python
+READ_ONLY_TOOLS = frozenset(OFFICIAL_TOOLS) | {"now-time-info"}
+```
+
+`MCDClient.call_tool()` 的第一件事就是调用 `assert_read_only()`：
+
+- 工具在 `READ_ONLY_TOOLS` 中 → 放行；
+- 否则 → 抛 `WriteOperationBlocked`，`ToolResult.blocked = True`，**不发起任何网络请求**。
+
+为什么用白名单而不是黑名单？
+黑名单只能拦住"已知的"写入工具；官方清单在持续扩充（v1.0.0 → v1.0.9 已新增多个下单类工具），
+任何新增的写入工具都会绕过黑名单。白名单的方向相反：**未知即拒绝**。
+
+### 覆盖的测试
+
+| 断言 | 位置 |
+|---|---|
+| `DENIED_TOOLS` 中每个工具都被拦截 | `test_every_denied_tool_is_blocked` |
+| 从未见过的工具也被拦截 | `test_unknown_tool_is_blocked_by_default` |
+| 被拦截的调用不进入调用记录 | `test_blocked_calls_are_not_recorded` |
+| 白名单未偷偷扩大 | `test_readonly_set_is_minimal` |
+
+## 2. Token：只从环境变量来，绝不外流
+
+| 环节 | 措施 |
+|---|---|
+| 读取 | 只读 `MCD_MCP_TOKEN`；不读配置文件、不接受命令行明文参数 |
+| 存储 | 不写入任何文件；`mcp-config.example.json` 仅有占位符 `YOUR_MCP_TOKEN` |
+| 请求 | 仅放入 HTTP 头，不写入 URL / query string（避免进入代理日志） |
+| 输出 | 异常信息、日志、报告、`--dump-raw` 产物统一经过 `redact()` |
+| 提示 | `--version`、状态查询等只输出 `已配置 / 未配置`，不回显内容 |
+
+### `redact()` 的规则
+
+1. 已知密钥（来自环境变量）精确替换；
+2. `Bearer <...>` → `Bearer ***`；
+3. JSON 中 `authorization` / `token` / `apiKey` / `secret` 等键的值；
+4. 带常见前缀的密钥（`sk_` / `pk_` / `key_` / `token_` / `secret_`）；
+5. 32 位以上连续十六进制串；
+6. 40 字符以上的 base64url 形态串。
+
+第 5、6 条**刻意不加词边界（`\b`）**。开发过程中曾因此漏掉一枚
+`sk_live_<40位十六进制>` 形态的密钥——`\b` 在 `_` 之后不成立。
+取舍是明确的：**宁可过度脱敏，也不放过一枚 Token**。
+代价是极少数长串 ID 会显示为 `***`；这是遮蔽而非填充，与"不编造"原则不冲突。
+
+回归用例：`tests/test_redaction.py::TestRedactRegressions::test_sk_live_regression`。
+
+## 3. 数据完整性：缺失就说缺失
+
+| 场景 | 行为 |
+|---|---|
+| 字段在返回中不存在 | 规范字段置 `None`，登记进 `missing`，报告渲染 `[字段缺失]` |
+| 字段存在但为 `null` | 同上 |
+| 日期无法解析（如 `长期有效`） | 置 `None` 并登记缺失，**不做近似推测** |
+| 一句话里含多个数字（如 `满30减8`） | 拒绝解析该数值并登记缺失，避免把 30 误当优惠 8 元 |
+| 缺少到期日 | 归入 `UNKNOWN` 单一分区，**不假定为"永久有效"** |
+| 「即将过期积分」缺失 | 归入 `UNKNOWN`，**不假定为 0** |
+| 某个工具取数失败 | 记录失败原因，其余板块照常生成（降级而非中断） |
+
+## 4. 模拟模式不得伪装成真实数据
+
+- `mock` 模式的报告首行有醒目提示：数据来自本地样例，**不是你的真实权益**；
+- `mock` 模式由 `TestMockTransportIsolation` 断言**不发起任何网络请求**；
+- 两种模式在报告中显式标注 `数据模式`，且横幅文案不同（有测试覆盖）。

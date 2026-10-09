@@ -1,0 +1,58 @@
+# ---- 凭据与隐私：绝不提交 ----
+.env
+.env.*
+!.env.example
+*.token
+mcp-config.json
+mcp.json
+**/mcp-config.local.json
+
+# ---- 真实运行产物：可能含账户信息 ----
+raw/
+*.raw.json
+report.md
+reports/
+out/
+
+# ---- 真实 MCP 响应采集：绝不提交 ----
+# 采集目录由 `run_radar.py --mode replay --replay-dir DIR` 读取，
+# 里面是流式拉下来的**真实**账户数据（券清单、积分余额）。
+# 需要长期保存格式证据时，请按 fixtures/README.md 的口径改写为合成样例后再提交。
+captures/
+capture/
+livecap/
+livecap*/
+replay/
+*.live.md
+*.live.json
+*.capture.md
+*.dump.json
+*.dump.md
+
+# ---- WorkBuddy 本地状态 ----
+.workbuddy/
+.workbuddy*/**
+
+# ---- 打包产物 ----
+*.zip
+dist/
+build/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---- 编辑器与系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~

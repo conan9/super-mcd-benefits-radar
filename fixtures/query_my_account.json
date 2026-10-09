@@ -1,0 +1,12 @@
+{
+  "_mock": true,
+  "_notice": "合成样例数据，非真实用户数据。积分字段依据官方工具描述（可用/累计/冻结/即将过期）。",
+  "data": {
+    "availablePoints": 2380,
+    "totalPoints": 15680,
+    "frozenPoints": 0,
+    "expiringPoints": 500,
+    "expiringDate": "${TODAY+12}",
+    "memberLevel": "麦金卡会员"
+  }
+}

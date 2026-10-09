@@ -1,0 +1,15 @@
+# 统一换行符为 LF。
+# 不这样规定的话：本机 git 的 core.autocrlf=true 会在检出时把 LF 转成 CRLF，
+# 导致「本地测试通过的文件」与「仓库里的文件」出现全文件级字节差异，
+# 也会破坏 CONTEST_DECLARATION.md 与官方原文的字节一致性。
+* text=auto eol=lf
+
+# 二进制资源不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,13 @@
+{
+  "$comment": "麦当劳中国 MCP Server 接入示例（脱敏）。配置路径：WorkBuddy 左侧边栏【专家·技能·连接器】→【连接器】→ 右上角【自定义连接器】→【配置 MCP】。",
+  "$warning": "YOUR_MCP_TOKEN 必须替换为你在 https://open.mcd.cn/mcp 申请的真实 Token。请勿把填好 Token 的文件提交到任何仓库。",
+  "mcpServers": {
+    "mcd-mcp": {
+      "type": "streamablehttp",
+      "url": "https://mcp.mcd.cn",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_TOKEN"
+      }
+    }
+  }
+}
