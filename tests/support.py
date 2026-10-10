@@ -22,23 +22,27 @@ SENTINEL_TOKEN = "SENTINEL-TOKEN-abcdefghijklmnop0123456789"
 
 
 def mock_client():
-    """构造 mock 模式客户端。"""
-    from mcd_client import MCDClient
+    """构造 mock 模式客户端。
 
-    return MCDClient(mode="mock")
+    ``MockTransport`` 必须带上 ``today=TODAY``：JSON 样例里的有效期写作
+    ``${TODAY}`` / ``${TODAY+3}`` 这类**相对日期**，默认按真实当天解析。
+    若不钉住基准日，样例的"今天到期"会随运行日期漂移，
+    ``P0`` 会在第二天变成 ``P1``，断言随即失效（这是真实发生过的缺陷）。
+    """
+    from mcd_client import MCDClient, MockTransport
+
+    return MCDClient(mode="mock", transport=MockTransport(today=TODAY))
 
 
 def mock_results(tools: tuple[str, ...] | None = None):
     """抓取 fixtures 得到 ``{tool: ToolResult}``。"""
-    from mcd_client import MCDClient
-
     tools = tools or (
         "query-my-coupons",
         "query-my-account",
         "available-coupons",
         "campaign-calendar",
     )
-    client = MCDClient(mode="mock")
+    client = mock_client()
     return {tool: client.call_tool(tool) for tool in tools}
 
 
@@ -79,8 +83,11 @@ def env_with(**overrides: str) -> dict:
     return env
 
 
-#: 真实 MCP 响应的**脱敏逐字副本**（2026-10-09 实测）。
-#: 这是本套件区别于 mock JSON 样例的关键：它锁住的是**线上真实格式**。
+#: 四个工具的**官方响应格式**样例（2026-10-09 实测）。
+#: 样例为**结构逐行对标真实响应、取值全部合成**（真实响应含账户数据，未随仓库分发）。
+#: 这是本套件区别于 mock JSON 样例的关键：它锁住的是**线上真实格式**
+#: （Markdown / 说明文本包裹的 JSON），而不是结构化 JSON 解析路径。
+#: 因此这四个样例的日期是**绝对日期**，与下面 ``TODAY`` 绑定。
 REAL_FIXTURES: dict[str, str] = {
     "query-my-coupons": "query_my_coupons.md",
     "query-my-account": "query_my_account.txt",

@@ -2,7 +2,7 @@
 
 用法::
 
-    # 离线演示（默认，无需 Token）
+    # 离线演示（**必须显式指定** mock，无需 Token）
     python scripts/run_radar.py --mode mock --out report.md
 
     # 离线演示 · 官方响应格式（回放 fixtures/ 中的合成格式样例）
@@ -17,6 +17,8 @@
     # 导出原始返回，用于核对字段映射
     python scripts/run_radar.py --mode mock --dump-raw raw/
 
+模式默认值：``real``。**没有 Token 或取数失败时会直接报错退出，
+不会自动降级为 mock**——合成样例只能由用户显式指定，避免被误当成真实权益。
 安全约定：本脚本只调用只读工具；Token 仅从环境变量读取，输出前统一脱敏。
 """
 
@@ -51,8 +53,15 @@ FETCH_ORDER: tuple[str, ...] = (
     "campaign-calendar",
 )
 
-#: 回放目录里可识别的样例后缀（真实格式优先）
-REPLAY_SUFFIXES: tuple[str, ...] = (".md", ".txt", ".json")
+#: 回放目录里可识别的样例后缀（真实格式优先；``""`` 允许无扩展名）
+REPLAY_SUFFIXES: tuple[str, ...] = (".md", ".txt", ".text", ".raw", ".json", "")
+
+#: 使用合成样例时的醒目提示（打到 stderr，避免被当成真实权益）
+MOCK_WARNING = """\
+⚠️  当前为 mock 模式：报告内容来自**内置合成样例**，不是你账户的真实权益。
+    如需真实数据，请在 WorkBuddy 中通过 mcd-mcp 连接器抓取原始返回后使用 --mode replay，
+    或在命令行配置 MCD_MCP_TOKEN 后使用 --mode real。
+"""
 
 DUMP_PRIVACY_NOTICE = """\
 此目录含 MCD MCP 的原始返回，可能包含会员标识、券面信息与带签名的临时 URL。
@@ -68,6 +77,16 @@ def fetch_all(client: MCDClient) -> dict:
     return {tool: client.call_tool(tool) for tool in FETCH_ORDER}
 
 
+def _candidate_stems(tool: str) -> tuple[str, ...]:
+    """采集目录里可能出现的文件名主干。
+
+    调用方（人或 Agent）可能把工具名写成 ``query-my-coupons``、``query_my_coupons``，
+    大小写也可能不同。这里全部容忍，避免"文件明明在、却报没找到"。
+    """
+    underscore = tool.replace("-", "_")
+    return tuple(dict.fromkeys((underscore, tool)))
+
+
 def load_replay(directory: Path, tools: tuple[str, ...] = FETCH_ORDER) -> dict:
     """从目录回放已捕获的 MCP 响应，**不联网**。
 
@@ -76,16 +95,24 @@ def load_replay(directory: Path, tools: tuple[str, ...] = FETCH_ORDER) -> dict:
     """
     results: dict[str, ToolResult] = {}
     for tool in tools:
-        stem = tool.replace("-", "_")
         found: Path | None = None
-        for suffix in REPLAY_SUFFIXES:
-            candidate = directory / f"{stem}{suffix}"
-            if candidate.is_file():
-                found = candidate
+        for stem in _candidate_stems(tool):
+            for suffix in REPLAY_SUFFIXES:
+                for name in (f"{stem}{suffix}", f"{stem}{suffix}".lower()):
+                    candidate = directory / name
+                    if candidate.is_file():
+                        found = candidate
+                        break
+                if found:
+                    break
+            if found:
                 break
         if found is None:
             results[tool] = ToolResult(
-                tool=tool, ok=False, error=f"[replay] 未找到 {stem}.{{md,txt,json}}", mode="replay"
+                tool=tool,
+                ok=False,
+                error=f"[replay] 未找到 {tool.replace('-', '_')}.{{md,txt,json}}",
+                mode="replay",
             )
             continue
         text = found.read_text(encoding="utf-8")
@@ -146,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
         args.mode = "replay"
 
     mode = "replay" if args.mode == "replay" else mode_from_env(args.mode)
+    if mode == "mock":
+        # 合成样例必须显式指定，且必须被反复提醒——绝不与真实权益混为一谈。
+        # 走 stderr，避免污染可能被重定向走的报告/摘要输出。
+        print(MOCK_WARNING, file=sys.stderr)
+
     client: MCDClient | None = None
     if mode != "replay":
         try:
@@ -168,10 +200,17 @@ def main(argv: list[str] | None = None) -> int:
     out_path.write_text(markdown, encoding="utf-8")
 
     failures = [s for s in bundle.sources if not s.ok]
+    unreadable = [s for s in bundle.sources if s.unrecognized]
     if not args.quiet:
         print(summarize(bundle, radar))
         for status in failures:
             print(f"  ! {status.tool} 取数失败：{redact(status.error or '')}", file=sys.stderr)
+        for status in unreadable:
+            print(
+                f"  ! {status.tool} 收到数据但解析失败（原文 {status.payload_chars} 字符）："
+                "该板块的空白**不代表没有权益**，请核对采集到的原始载荷是否完整、是否被转述。",
+                file=sys.stderr,
+            )
         print(f"报告已写入：{out_path.resolve()}")
 
     if args.dump_raw:
@@ -197,8 +236,13 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
 
-    # 全部数据源失败时给出非零退出码，便于 CI 感知
-    return 1 if failures and len(failures) == len(bundle.sources) else 0
+    # 退出码约定（便于自动化链路感知，而不是"看起来成功了"）：
+    #   0 正常；1 全部数据源取数失败；2 鉴权/配置问题；3 有数据源解析失败
+    if failures and len(failures) == len(bundle.sources):
+        return 1
+    if unreadable:
+        return 3
+    return 0
 
 
 if __name__ == "__main__":

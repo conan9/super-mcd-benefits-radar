@@ -7,9 +7,12 @@
    不自动领券"承诺的技术落点，而非文档约定。
 2. **双模式严格分离**：``mock`` 只读本地 fixtures，绝不联网；
    ``real`` 才连接 ``https://mcp.mcd.cn``。
-3. **Token 永不落盘、永不回显**：仅从环境变量 ``MCD_MCP_TOKEN`` 读取，
+3. **默认真实模式，绝不自动回退 mock**：没有 Token 时 ``real`` 直接报错退出，
+   **不会**悄悄换成合成样例——否则用户会拿到一份看起来正常的假报告，
+   却误以为是自己账户的真实权益。``mock`` 只能由用户显式指定（见 :data:`DEFAULT_MODE`）。
+4. **Token 永不落盘、永不回显**：仅从环境变量 ``MCD_MCP_TOKEN`` 读取，
    所有对外字符串统一经过 :func:`redact`。
-4. **纯标准库**：使用 ``urllib.request`` 与 ``json``，无第三方依赖。
+5. **纯标准库**：使用 ``urllib.request`` 与 ``json``，无第三方依赖。
 
 官方文档：[M-China/mcd-mcp-server](https://github.com/M-China/mcd-mcp-server)
 """
@@ -225,6 +228,10 @@ class MockTransport:
 
     支持通过环境变量 ``MCD_MOCK_FAIL`` 注入失败（逗号分隔的工具名），
     用于验证"单个数据源失败不影响整份报告"的降级逻辑。
+
+    ``today`` 用于把样例里的 ``${TODAY}`` / ``${TODAY+N}`` 相对日期对齐到**指定基准日**。
+    不传时按真实当天解析（离线演示的自然行为）；测试与历史复现则显式传入，
+    否则样例的"今天到期"会随运行日期漂移，断言随之失效。
     """
 
     mode = "mock"
@@ -233,8 +240,9 @@ class MockTransport:
     _REAL_SUFFIXES: tuple[str, ...] = (".md", ".txt")
     _JSON_SUFFIXES: tuple[str, ...] = (".json",)
 
-    def __init__(self, fixture_dir: Path | None = None) -> None:
+    def __init__(self, fixture_dir: Path | None = None, today: date | None = None) -> None:
         self.fixture_dir = fixture_dir or FIXTURE_DIR
+        self.today = today
         self.failing = {t.strip() for t in os.environ.get("MCD_MOCK_FAIL", "").split(",") if t.strip()}
         self.format = os.environ.get("MCD_MOCK_FORMAT", "json").strip().lower() or "json"
 
@@ -267,7 +275,11 @@ class MockTransport:
             path = self.fixture_path(name)
             if path is None:
                 raise MCPToolError(f"[mock] 缺少样例数据: {name.replace('-', '_')}.json|.md|.txt")
-            return {"content": [{"type": "text", "text": resolve_placeholders(path.read_text(encoding="utf-8"))}]}
+            return {
+                "content": [
+                    {"type": "text", "text": resolve_placeholders(path.read_text(encoding="utf-8"), self.today)}
+                ]
+            }
         raise MCPTransportError(f"[mock] 不支持的方法: {method}")
 
 
@@ -454,14 +466,31 @@ def _maybe_json(text: str) -> Any:
         return text
 
 
+#: 默认数据模式。本项目面向真实使用，**默认即真实 MCP**。
+#: 刻意不设"没 Token 就回落 mock"的兜底：那会让用户拿到一份看起来正常的合成假报告，
+#: 却误以为是自己账户的真实权益——这比直接报错危险得多。
+DEFAULT_MODE = "real"
+
+
 def mode_from_env(argv_mode: str | None = None) -> str:
-    """决定运行模式：显式参数 > 环境变量 > 无 Token 时兜底 mock。"""
+    """决定运行模式：显式参数 > 环境变量 > 默认 ``real``。
+
+    优先级：
+
+    1. 命令行 ``--mode``（``mock`` / ``real`` / ``replay``）
+    2. 环境变量 ``MCD_MODE``（只认 ``mock`` / ``real``）
+    3. 默认 ``real``
+
+    ⚠️ **不存在"没有 Token 就自动换成 mock"的行为。** 真实模式缺少 Token 时会
+    直接报错退出（``MCPAuthError``），``mock`` 只能由用户显式指定。
+    合成样例与真实权益必须能被一眼区分。
+    """
     if argv_mode:
         return argv_mode
     env_mode = os.environ.get("MCD_MODE", "").strip().lower()
     if env_mode in ("mock", "real"):
         return env_mode
-    return "real" if os.environ.get("MCD_MCP_TOKEN") else "mock"
+    return DEFAULT_MODE
 
 
 def build_client(mode: str | None = None) -> MCDClient:
@@ -471,6 +500,7 @@ def build_client(mode: str | None = None) -> MCDClient:
 
 __all__ = [
     "DEFAULT_URL",
+    "DEFAULT_MODE",
     "OFFICIAL_TOOLS",
     "READ_ONLY_TOOLS",
     "DENIED_TOOLS",

@@ -69,10 +69,12 @@
 | 🕗 **北京时间基准** | 到期判定固定用 UTC+8，避免跨时区/凌晨把"今天到期"算成"明天到期" |
 | 🔐 **隐私字段不落库** | `accountId` 只记录"存在过"，取值不进数据结构、报告与日志；签名 URL 导出时掩码 |
 | 🗓️ **标准库排序** | 紧急度计算与排序纯用 Python `datetime`，**零第三方依赖** |
-| 🎭 **三种模式隔离** | `mock` 合成样例 / `replay` 离线回放官方格式 / `real` 实时联网，报告首行显式标注 |
+| 🎭 **三种模式隔离** | `mock` 合成样例（**必须显式指定**）/ `replay` 离线回放官方格式 / `real` 实时联网，报告首行显式标注 |
+| 🚫 **绝不自动回退 mock** | **默认真实模式**。没有 Token 或取数失败时**直接报错退出**，绝不悄悄换成合成样例 |
+| 🔎 **采集先校验** | 回放前用 `scripts/verify_capture.py` 检查采集目录：缺件、读不懂、疑似被转述，一律拦下 |
 | 🛡️ **Token 零外流** | 只从环境变量读取；异常、日志、报告统一脱敏；仓库内附全仓凭据扫描测试 |
 | ♻️ **单点失败降级** | 任一工具失败不影响整份报告，失败原因如实写入报告 |
-| ✅ **322 项测试** | 覆盖边界值、排序确定性、脱敏回归、只读门禁、状态分类、**三种真实格式解析**、端到端回放 |
+| ✅ **337 项测试** | 覆盖边界值、排序确定性、脱敏回归、只读门禁、**默认模式不得回退 mock**、采集校验、状态分类、**三种真实格式解析**、端到端回放 |
 
 ---
 
@@ -134,7 +136,13 @@ python scripts/run_radar.py --mode replay --replay-dir fixtures --out report.md 
 三种模式产出的报告**结构完全一致**，只有首行的模式横幅不同。
 建议顺序：**先离线看效果 → 再回放官方格式 → 最后联网取自己的权益**。
 
+> 🚫 **模式默认值为 `real`，且不存在「没有 Token 就自动换成 mock」的行为。**
+> 合成样例只能由用户显式指定（`--mode mock` 或 `MCD_MODE=mock`），且报告首行与终端
+> 都会标注"合成样例、非真实权益"。宁可报错，也不静默给出一份看起来正常的假报告。
+
 ### 1. 离线体验（合成样例，不需要 Token）
+
+需要**显式**指定 `--mode mock`：
 
 ```bash
 $ python scripts/run_radar.py --mode mock --out report.md
@@ -142,7 +150,7 @@ $ python scripts/run_radar.py --mode mock --out report.md
 报告已写入：report.md
 ```
 
-报告首行标注 `[mock]`，**不会**和真实数据混淆。
+报告首行标注 `[mock]`，终端（stderr）也会打印"不是你账户的真实权益"，**不会**和真实数据混淆。
 
 ### 2. 回放官方响应格式（不需要 Token）
 
@@ -189,13 +197,16 @@ $ python scripts/run_radar.py --mode real --out report.md
 但**判断必须由本项目的代码产出**，不能由大模型直接总结工具返回。正确姿势：
 
 1. 让 WorkBuddy 只读调用四个工具；
-2. 把四个工具的返回写入一个回放目录（例如 `fixtures-dump/`，文件名为
+2. 把四个工具的返回**逐字**写入一个回放目录（例如 `fixtures-dump/`，文件名为
    `query_my_coupons.md` / `query_my_account.txt` / `available_coupons.md` / `campaign_calendar.md`）；
-3. 运行 `python scripts/run_radar.py --mode replay --replay-dir fixtures-dump --out report.md`。
+3. 校验采集目录：`python scripts/verify_capture.py --dir fixtures-dump/`（退出码非 0 就不要往下走）；
+4. 运行 `python scripts/run_radar.py --mode replay --replay-dir fixtures-dump --out report.md`。
 
 这样报告里的分级、排序、字段缺失标记 **100% 出自本项目的代码**，可复现、可审计。
 
 > 📌 **凡是"哪个券更急""哪个字段缺了"这类判断，都必须由代码算出来。**
+> ⛔ 连接器不可用时，**不得**改用 `--mode mock` 顶替，也不得凭记忆编造权益条目。
+> 第 3 步的校验器就是为此设的门槛：它拒绝被摘要/转述过的载荷，而不是将错就错。
 
 ### 5. 先验证连通性
 
@@ -268,17 +279,18 @@ super-mcd-benefits-radar/
 │   ├── radar.py                  # 紧急度评分排序（纯 stdlib datetime）
 │   ├── report.py                 # 报告渲染（8 节契约）
 │   ├── run_radar.py              # 一键 CLI（mock / replay / real）
+│   ├── verify_capture.py         # 采集目录校验（完整性 / 可解析性 / 逐字性）
 │   ├── verify_mcp.py             # 连通性与工具清单验证
 │   └── dump_schema.py            # 由代码生成数据字典
 ├── references/
 │   ├── mcp-tools.md              # 官方工具清单 + 实测格式
 │   ├── data-schema.md            # 数据字典（由代码生成，不会与实现漂移）
-│   ├── safety.md                 # 只读与隐私设计
+│   ├── safety.md                 # 只读、隐私与"绝不自动回退 mock"的设计
 │   ├── live-verification.md      # 真实调用的格式结论与缺陷修复（脱敏摘要）
 │   └── privacy-and-publication.md# 隐私边界与公开发布范围
 ├── fixtures/                     # 数据样例（全部合成，见 fixtures/README.md）
 ├── examples/                     # 样例报告（由本项目代码生成）
-└── tests/                        # 322 项测试
+└── tests/                        # 337 项测试
 ```
 
 ### 数据处理链路
@@ -390,11 +402,24 @@ Markdown 报告（8 节固定结构 + 数据完整性声明）
 $ python run_tests.py
 OK
 ------------------------------------------------------------
-共 322 项 | 失败 0 | 错误 0 | 跳过 0
+共 337 项 | 失败 0 | 错误 0 | 跳过 1
 
 $ python run_tests.py redaction -v     # 只看脱敏相关
 $ python run_tests.py radar            # 只看紧急度分级
 ```
+
+### 测试计数说明
+
+| 阶段 | 实跑 | 失败 | 错误 | 跳过 | 说明 |
+|---|---:|---:|---:|---:|---|
+| 开发早期 | 322 | 0 | 0 | 0 | 见 [`workbuddy.md`](workbuddy.md) 开发记录（**历史如实保留，不改写**） |
+| 本轮安全同步后 | 337 | 0 | 0 | 0 或 1 | 检出目录名等于 `super-mcd-benefits-radar` 时为 `0`；在发布工作目录下为 `1` |
+
+> **跳过的是哪一项？** `tests/test_skill_manifest.py::test_name_matches_directory_when_run_in_place`——
+> 它只在本目录名恰好等于 Skill ID 时执行。这是**打包/安装环节**的约束，不是代码缺陷。
+>
+> **跳过不计入通过。** 实际通过数 = 实跑数 − 跳过数；请以**对应目录下的实际测试输出**为准，
+> 不要把跳过的用例当作已通过。
 
 覆盖重点：
 
@@ -402,7 +427,8 @@ $ python run_tests.py radar            # 只看紧急度分级
 |---|---|
 | `test_skill_manifest.py` | SKILL.md frontmatter 合法性与声明完整性 |
 | `test_submission_ready.py` | 必需文件齐全、官方声明哈希未变、仓库无凭据、文档与代码一致 |
-| `test_client_guardrails.py` | 写入类工具被拦截、白名单未扩大、mock 不联网 |
+| `test_client_guardrails.py` | 写入类工具被拦截、白名单未扩大、mock 不联网、**默认模式为 `real` 且绝无回退** |
+| `test_verify_capture.py` | 采集目录校验：缺件/空文件/被转述载荷被拦下，连字符文件名可识别，校验过程不联网 |
 | `test_redaction.py` | Token 不外流（含一个真实回归用例） |
 | `test_normalize.py` | 日期/数字解析边界、缺失字段登记、去重 |
 | `test_payload_state.py` | **解析失败 vs 真空 vs 取数失败**三态区分，禁止假阴性 |
@@ -463,7 +489,7 @@ $ python run_tests.py radar            # 只看紧急度分级
 | 必需文件 | `README.md`、`CONTEST_DECLARATION.md`（官方原文，未改动）、`MCP_INTEGRATION.md`、`mcp-config.example.json`、源代码 |
 | WorkBuddy 专项 | 已附 `workbuddy.md`（脱敏开发对话记录） |
 | 真实验证 | 四个只读工具均于 2026-10-09 完成真实调用，格式结论见 [`references/live-verification.md`](references/live-verification.md) |
-| 自动化测试 | 322 项，全绿（`python run_tests.py`） |
+| 自动化测试 | 337 项，失败 0 / 错误 0（跳过数随检出目录名，见上文「测试计数说明」） |
 | Git 历史 | 公开仓库使用**干净的初始提交**，不继承任何开发期历史 |
 
 ---

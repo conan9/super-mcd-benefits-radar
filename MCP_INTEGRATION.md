@@ -84,7 +84,7 @@ sequenceDiagram
     participant R as radar.py + report.py
 
     U->>S: "帮我看看哪些券快过期了"
-    S->>C: 按模式构建客户端（mock / replay / real）
+    S->>C: 按模式构建客户端（默认 real；mock 必须显式指定，绝不自动回退）
     Note over C: assert_read_only() 白名单门禁
     C->>M: tools/call query-my-coupons
     M-->>C: Markdown 券列表
@@ -109,6 +109,14 @@ sequenceDiagram
 
 调用为**顺序执行**、每条都是独立的 `tools/call`，总请求数 **4 次**，
 远低于 600 次/分钟的限流阈值。
+
+> ⚠️ **默认真实模式，且绝不自动回退 `mock`。** 没有 `MCD_MCP_TOKEN` 时，
+> `--mode real` 会直接报错并以退出码 `2` 结束，而**不会**悄悄换成合成样例——
+> 否则用户会拿到一份看起来正常的假报告，却误以为是自己账户的真实权益。
+> `mock` 只能由用户显式指定，报告首行与终端都会标注"合成样例、非真实权益"。
+>
+> 连接器场景下，四个工具的原始返回需先**逐字落盘**再用 `--mode replay` 回放；
+> 落盘后请先用 `scripts/verify_capture.py` 校验（缺件 / 读不懂 / 疑似被转述一律拦下）。
 
 ## 4. 数据处理链路
 
@@ -213,7 +221,8 @@ Markdown 报告（8 节固定结构 + 完整性声明）
 | **把"不知道"显式化** | 缺到期日的券不做静默丢弃、也不假设永久有效，单列 UNKNOWN 提醒用户自查 |
 | **把"不敢做"显式化** | 不代领券、不下单，只给排序与建议；把执行权留给人 |
 | **把"读不懂"显式化** | 四个工具返回三种格式，解析失败必报警，绝不把"没读懂"伪装成"没有数据" |
-| **零依赖可审计** | 纯标准库 + 322 项测试，评委与用户可完整复核逻辑 |
+| **绝不静默造假** | 默认即真实 MCP；没有 Token 或取数失败时直接报错退出，绝不自动回退到合成样例 |
+| **零依赖可审计** | 纯标准库 + 337 项测试，评委与用户可完整复核逻辑 |
 
 一句话：**它不替用户花钱，只替用户记事。**
 
@@ -228,6 +237,7 @@ Markdown 报告（8 节固定结构 + 完整性声明）
 | 响应有内容但解析不出记录 | `UNRECOGNIZED` | 报告写"**收到数据，但解析失败**"并给出排查命令；**禁止**呈现为"没有数据" |
 | 响应确实为空 | `EMPTY` | 这是**唯一**允许说"没有活动 / 没有券"的情况 |
 | 全部工具均失败 | — | CLI 返回退出码 `1`，便于 CI 感知 |
+| 有工具"收到数据但解析失败" | `UNRECOGNIZED` | CLI 返回退出码 `3`，并在 stderr 提示"该板块的空白不代表没有权益" |
 | 试图调用写入类工具 | — | `WriteOperationBlocked`，`ToolResult.blocked = True`，不发请求 |
 | 响应是 SSE 或纯 JSON | — | 两种形态都能解析（`text/event-stream` 的 `data:` 帧 / 直接 JSON） |
 | 响应是 Markdown 正文 | — | 该工具已注册文本解析器（`query-my-coupons` / `available-coupons` / `campaign-calendar`）则回退解析；否则记为 `UNRECOGNIZED` |
@@ -250,6 +260,10 @@ MCD_MCP_TOKEN=*** python scripts/verify_mcp.py --real
 python scripts/run_radar.py --mode replay --replay-dir fixtures --out report.md
 #    fixtures/ 存的是结构逐行对标 2026-10-09 真实响应的合成样例（取值全部合成），
 #    走的是与联网完全相同的解析/排序/渲染链路
+
+# 3b) 校验自采目录（WorkBuddy 连接器场景的硬门槛）
+python scripts/verify_capture.py --dir fixtures-dump/
+#    退出码 0 才可进入报告生成；缺件 / 解析失败 / 疑似被转述都会以非 0 退出
 
 # 4) 联网取数并导出原始返回，用于校准字段映射
 MCD_MCP_TOKEN=*** python scripts/run_radar.py --mode real --dump-raw raw/

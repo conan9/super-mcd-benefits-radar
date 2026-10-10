@@ -23,6 +23,7 @@ capture/
 livecap/
 livecap*/
 replay/
+fixtures-dump/
 *.live.md
 *.live.json
 *.capture.md

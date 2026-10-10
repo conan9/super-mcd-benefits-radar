@@ -1,6 +1,6 @@
 {
   "_mock": true,
-  "_notice": "合成样例数据，非真实用户数据，不代表麦当劳官方字段定义。请用 scripts/sniff_schema.py 对真实返回做一次字段核对。",
+  "_notice": "合成样例数据，非真实用户数据，不代表麦当劳官方字段定义。核对真实返回请用 scripts/verify_capture.py（校验采集目录）与 scripts/dump_schema.py（核对字段映射）。",
   "data": {
     "couponList": [
       {

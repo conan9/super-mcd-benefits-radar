@@ -86,9 +86,38 @@ class TestModeSelection(unittest.TestCase):
         with mock.patch.dict(os.environ, support.env_with(MCD_MCP_TOKEN="x"), clear=True):
             self.assertEqual(mode_from_env(None), "real")
 
-    def test_no_token_defaults_to_mock(self) -> None:
+    def test_no_token_defaults_to_real(self) -> None:
+        """默认真实模式 —— 刻意**不**回落 mock。
+
+        曾经的行为是"没 Token 就用合成样例"，它会让用户拿到一份看起来正常的
+        假报告却误以为是自己账户的真实权益。宁可报错，也不要静默造假。
+        """
         with mock.patch.dict(os.environ, support.env_with(), clear=True):
+            self.assertEqual(mode_from_env(None), "real")
+
+    def test_default_mode_constant_is_real(self) -> None:
+        from mcd_client import DEFAULT_MODE
+
+        self.assertEqual(DEFAULT_MODE, "real")
+
+    def test_mock_never_engages_without_explicit_optin(self) -> None:
+        """没有 Token、也没有显式指定时，绝不自动切到 mock。
+
+        断言的是**端到端行为**：按默认模式建客户端会抛 ``MCPAuthError``，
+        而不是悄悄拿到一个 mock 客户端。
+        """
+        with mock.patch.dict(os.environ, support.env_with(), clear=True):
+            resolved = mode_from_env(None)
+            self.assertNotEqual(resolved, "mock", "无 Token 时不得回退到 mock")
+            with self.assertRaises(MCPAuthError):
+                MCDClient(mode=resolved)
+
+    def test_mock_requires_explicit_selection(self) -> None:
+        """``mock`` 只能由用户显式选择（参数或环境变量），并且真的生效。"""
+        with mock.patch.dict(os.environ, support.env_with(MCD_MODE="mock"), clear=True):
             self.assertEqual(mode_from_env(None), "mock")
+            self.assertEqual(MCDClient(mode=mode_from_env(None)).mode, "mock")
+        self.assertEqual(mode_from_env("mock"), "mock")
 
     def test_real_mode_without_token_raises_helpful_error(self) -> None:
         with mock.patch.dict(os.environ, support.env_with(), clear=True):

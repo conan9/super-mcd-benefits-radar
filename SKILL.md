@@ -41,7 +41,8 @@ agent_created: true
 | **只读** | 只调用查询类工具。下单 / 核销 / 领券类工具在本技能中被**硬编码拒绝** |
 | **不编造** | 金额、有效期、折扣一律来自 MCP 返回值；取不到写 `[字段缺失]`，格式本身不含写 `未提供`，绝不推测填充 |
 | **可追溯** | 每条结论都标注数据来源工具与原始字段名 |
-| **三模式隔离** | `mock`（合成样例）/ `replay`（**官方响应格式样例**，离线复现线上格式）/ `real`（实时联网）严格分离，报告首行显式标注 |
+| **真实优先** | **默认使用真实 MCP**。没有 Token 或取数失败时**直接报错并停止**，绝不悄悄回退到 `mock` 合成样例 |
+| **三模式隔离** | `mock`（合成样例，**必须显式指定**）/ `replay`（**官方响应格式样例**，离线复现线上格式）/ `real`（实时联网）严格分离，报告首行显式标注 |
 
 ---
 
@@ -79,15 +80,19 @@ agent_created: true
 ### 第 0 步：确认模式
 
 ```bash
-echo "${MCD_MODE:-mock}"          # 未设置时默认 mock
+echo "${MCD_MODE:-real}"          # 未设置时默认 real（刻意**不**回退 mock）
 echo "${MCD_MCP_TOKEN:+已配置}"    # 仅判断是否存在，不打印内容
 ```
 
 | 模式 | 触发条件 | 行为 |
 |---|---|---|
-| `mock` | `MCD_MODE=mock` 或未配置 Token | 读取 `fixtures/*.json`，不发起网络请求 |
+| `real`（**默认**） | 未显式指定模式时 | 连接 `https://mcp.mcd.cn` 真实调用。**未配置 `MCD_MCP_TOKEN` 时直接报错退出（退出码 `2`）** |
 | `replay` | `--mode replay`（或 `--replay-dir DIR`） | 读取离线回放目录中的**响应样例**，走与线上完全相同的解析/排序链路，不联网 |
-| `real` | `MCD_MODE=real` 且已配置 `MCD_MCP_TOKEN` | 连接 `https://mcp.mcd.cn` 真实调用 |
+| `mock` | **必须显式**：`--mode mock` 或 `MCD_MODE=mock` | 读取 `fixtures/*.json` **合成样例**，不发起网络请求 |
+
+> ⚠️ **不存在"没有 Token 就自动换成 mock"的行为。** 那会让用户拿到一份看起来正常的
+> 合成假报告，却误以为是自己账户的真实权益——这比直接报错危险得多。
+> `mock` 只能由用户显式指定，且报告首行与终端**双双**标注"合成样例、非真实权益"。
 
 **报告首行必须显式声明当前模式**，mock 模式下的报告顶部须有醒目提示，避免被误当作真实权益。
 
@@ -95,6 +100,8 @@ echo "${MCD_MCP_TOKEN:+已配置}"    # 仅判断是否存在，不打印内容
 > 因此 `real` 模式在会话内往往不可用。推荐做法：由 WorkBuddy 原生调度四个只读工具取数，
 > 把返回**原样**写入回放目录，再用 `--mode replay` 生成报告——
 > 这样分级与排序仍由本项目代码产出，而不是由大模型直接总结工具输出。
+>
+> ⛔ **连接器不可用时不得改用 `--mode mock`，也不得编造权益条目。**
 
 ### 第 1 步：抓取四个数据源（顺序执行，失败可降级）
 
@@ -144,27 +151,56 @@ echo "${MCD_MCP_TOKEN:+已配置}"    # 仅判断是否存在，不打印内容
 两者都不等于 `0`，也都不代表权益不存在。措辞由 `Coupon.unknown_mark` 按 `source_format`
 自动选择，**不得混用**。
 
-### 第 2 步：生成报告
+### 第 2 步：把原始返回逐字落盘并校验
 
-```bash
-python scripts/run_radar.py --mode mock --out report.md
+新建采集目录（例如 `fixtures-dump/`），把四个工具返回**原样逐字**写入：
+
+```text
+fixtures-dump/
+├── query_my_coupons.md      # query-my-coupons 的原始返回
+├── query_my_account.txt     # query-my-account 的原始返回
+├── available_coupons.md     # available-coupons 的原始返回
+└── campaign_calendar.md     # campaign-calendar 的原始返回
 ```
 
-离线复现真实格式（推荐先跑这个）：
+文件名还接受连字符写法（`query-my-coupons.md`）与 `.text` / `.raw` / `.json` 后缀。
+
+> ⚠️ **严禁改写、摘要、翻译、截断、补全或"整理格式"。** Markdown 的 `##` / `####`、
+> 行尾续行反斜杠、emoji、JSON 括号与全部字段名都必须原样保留。一旦落盘的是转述内容，
+> 后续分级与排序就失去依据——等于让大模型自由总结，这正是本技能要避免的。
+
+校验采集结果（**硬门槛，不可跳过**）：
 
 ```bash
+python scripts/verify_capture.py --dir fixtures-dump/
+```
+
+- 退出码 `0`：四个数据源齐备且可被解析 → 继续下一步。
+- 退出码 `1` / `2`：**停止，不要生成报告。** 如实说明哪些数据源缺失或无法解析，并重新采集。
+- 出现"疑似被转述"告警时，回到本步重新逐字落盘。
+
+### 第 3 步：生成报告
+
+```bash
+# WorkBuddy 内的标准路径：回放刚采集的原始载荷（推荐）
+python scripts/run_radar.py --mode replay --replay-dir fixtures-dump/ --out report.md
+
+# 离线复现仓库自带的合成格式样例
 python scripts/run_radar.py --mode replay --replay-dir fixtures --out report.md
+
+# 显式离线演示（合成样例，报告与终端都会标注"非真实权益"）
+python scripts/run_radar.py --mode mock --out report.md
+
+# 命令行直连真实接口（需要进程环境变量 MCD_MCP_TOKEN）
+MCD_MCP_TOKEN=*** python scripts/run_radar.py --mode real --out report.md
 ```
 
-真实模式：
+`run_radar.py` 的退出码：`0` 正常；`1` 四个数据源全部取数失败；`2` 鉴权 / 配置问题；
+`3` 有数据源**收到数据但解析失败**——此时**不得**把相关板块的空白说成"没有权益"。
 
-```bash
-MCD_MODE=real MCD_MCP_TOKEN=*** python scripts/run_radar.py --mode real --out report.md
-```
+### 第 4 步：交付话术
 
-### 第 3 步：交付话术
-
-先给「P0/P1 立即行动」清单（最多 5 条），再说明完整性缺口，最后附完整报告文件。
+先给「P0/P1 立即行动」清单（最多 5 条），再说明完整性缺口与失败的数据源，最后附完整报告文件。
 
 ---
 
@@ -252,7 +288,8 @@ MCD_MODE=real MCD_MCP_TOKEN=*** python scripts/run_radar.py --mode real --out re
 | 文件 | 作用 |
 |---|---|
 | `scripts/run_radar.py` | 一键入口，产出报告（支持 `mock` / `replay` / `real`） |
-| `scripts/mcd_client.py` | MCP 客户端：白名单、三模式、脱敏与结构保留式掩码 |
+| `scripts/verify_capture.py` | 采集目录校验：完整性、可解析性、逐字性（生成报告前的硬门槛） |
+| `scripts/mcd_client.py` | MCP 客户端：白名单、三模式（**默认真实、绝不自动回退 mock**）、脱敏与结构保留式掩码 |
 | `scripts/normalize.py` | 统一数据结构 + 缺失登记 + 四态分类 + 四种真实格式解析 |
 | `scripts/radar.py` | 紧急度评分与排序（纯 stdlib） |
 | `scripts/report.py` | Markdown 报告渲染 |
@@ -268,8 +305,10 @@ MCD_MODE=real MCD_MCP_TOKEN=*** python scripts/run_radar.py --mode real --out re
 
 ## 验收标准
 
-- [ ] mock 模式可离线跑出完整报告
+- [ ] **默认模式为 `real`；没有 Token 时报错退出，绝不自动回退 `mock`**
+- [ ] `mock` 只能显式指定，且报告首行与终端都标注"合成样例、非真实权益"
 - [ ] replay 模式可从响应样例跑出完整报告，且分级/排序由代码产出
+- [ ] `verify_capture.py` 对采集目录的退出码为 0（缺件 / 无法解析 / 疑似转述均判失败）
 - [ ] 真实模式下无 Token 时给出明确指引，不抛裸异常
 - [ ] 报告中 Token 出现次数恒为 0，账号标识取值出现次数恒为 0
 - [ ] 写入类工具被拒绝，且有测试覆盖

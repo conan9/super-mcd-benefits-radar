@@ -273,6 +273,24 @@ class TestDocsMatchCode(unittest.TestCase):
             with self.subTest(section=section):
                 self.assertIn(section, text)
 
+    def test_docs_declare_no_mock_fallback(self) -> None:
+        """README 与 SKILL.md 都必须写明"默认真实、绝不自动回退 mock"。
+
+        这既是文档承诺，也是安全边界：读者若以为 mock 是默认行为，
+        就可能把合成样例当成自己的真实权益。代码侧由
+        ``test_client_guardrails.TestModeSelection`` 锁定。
+        """
+        for name in ("README.md", "SKILL.md"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            with self.subTest(file=name):
+                self.assertIn("自动换成 mock", text)
+
+    def test_skill_md_lists_verify_capture(self) -> None:
+        """采集校验器必须同时在 SKILL.md 的文件导航里出现，且文件真的存在。"""
+        text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("verify_capture.py", text)
+        self.assertTrue((SCRIPTS / "verify_capture.py").is_file(), "缺少 scripts/verify_capture.py")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
